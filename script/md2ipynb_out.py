@@ -7,8 +7,8 @@ import json
 # 当前目录
 curr_root = Path('.').resolve()
 # 输出目录，与当前目录同级
-src_root = curr_root.parent 
-out_root = curr_root.parent / 'jupter'
+src_root = curr_root.parent / 'rag-summary-and-practice'
+out_root = src_root / 'jupter'
 
 
 def get_existing_cell_ids(ipynb_path):

@@ -95,13 +95,12 @@ def md_to_ipynb(md_path, ipynb_path):
                 current_id_index += 1
                 md_lines = []
             # 标题独占一个cell
-            line = re.sub(r'!\[\]\(/img', '![](../img', line)
             cell_id = existing_ids[current_id_index] if existing_ids and current_id_index < len(existing_ids) else None
             cells.append(create_cell_with_id('markdown', line.rstrip(), cell_id))
             current_id_index += 1
         else:
-            # 替换图片路径：![](/img -> ![](../img
-            line = re.sub(r'!\[\]\(/img', '![](../img', line)
+            # 替换图片路径： ](/img -> ](../img
+            line = re.sub(r'\]\(/img', '](../img', line)
             md_lines.append(line)
 
     # 文件结尾剩余 md 作为 markdown 单元

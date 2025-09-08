@@ -3,6 +3,8 @@ RAG 技术要点、本地实践
 
 ## 0.背景
 
+> jupyter notebook 版本：[jupter/README.ipynb](https://github.com/ningg/rag-summary-and-practice/blob/main/jupter/README.ipynb)
+
 最近几周工作上，接触些 RAG 内容，看了点资料；本着`最好的学习是复述`原则，把所有要点，重新梳理下。
 
 思路：

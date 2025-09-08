@@ -19,7 +19,7 @@ RAG 技术要点、本地实践
 
 LLM 基于大规模数据的预训练，获取的通用知识。对于`私有数据`和`高频更新数据`，LLM 无法及时更新。如果采用 `Fine-Tuning` 监督微调方式，LLM 训练成本也较高，而且无法解决`幻觉`问题。 
 
-即，`私有数据`和`高频更新数据`，以及`幻觉`问题，LLM 模型自身解决成本较高，因此，引入 RAG `Retrieval Augmented Generation`。
+即，`私有数据`和`高频更新数据`，以及`幻觉`问题，LLM 模型自身解决成本较高，因此，引入 RAG `Retrieval Augmented Generation` 检索增强生成。
 
 
 ## 2.核心原理
@@ -28,27 +28,32 @@ RAG 检索增强生成：通过检索`外部数据源`信息，构造`融合上�
 
 核心环节：
 
-a. 索引（indexing）
-b. 检索（retrieval）
-c. 生成（generation）
+* a.索引（indexing）
+* b.检索（retrieval）
+* c.生成（generation）
 
 
-下述 RAG 架构图中，出了上面 3 个核心环节，还有：查询优化、路由、查询构造
+下述 RAG 架构图中，出了上面 **3 个核心环节**，还有：查询优化、路由、查询构造
 
-* 查询优化（Query Translation）：查询重写、查询扩展、预查伪文档；
+* 查询优化（Query Translation）：查询重写 multi-query、查询扩展 sub-question、后退查询 step-back query、 HYDE 假设性文档嵌入；
 * 路由（Routing）：根据查询，判断从哪些数据源，获取信息；
 * 查询抽取（Query Construction）：从原始 Query 中，抽取 SQL、Cypher、metadatas，分别用于 关系数据库、图数据库、向量数据库的查询。
 
 ![rag_detail_v2](/img/rag-overview.png)
 
 
-开始之前，先在本地安装好 Ollama，并且下载好 embedding model 和 language model。
+开始之前，先在本地安装好 [Ollama](https://ollama.com/)，并且下载好 embedding model 和 language model。
 
-* TODO：增加一个链接.
+```
+# 安装 Ollama
+pip install ollama
+
+# 下载 embedding model 和 language model
+ollama pull nomic-embed-text
+ollama pull deepseek-r1:8b
+```
 
 安装依赖：
-
-* TODO 增加 python 依赖以及版本？
 
 ```
 ! pip install langchain_community tiktoken langchain-ollama langchainhub chromadb langchain
@@ -153,7 +158,7 @@ print(response)
 
 更多细节， [Count tokens](https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb) and [~4 char / token](https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them)
 
-> TODO: token 的扩展信息，参考上面链接.
+> **Token** ：机器/模型的分词结果，在词表中的 index；跟传统的人类分词，不是一个等同的概念，但是是**强相关**的。Token 可以认为是`模型的分词结果`，基于 字节对编码（BPE）、SentencePiece 等算法，跟人类的分词结果，不完全一致，但是，思路是一致的。
 
 查看下面分词得到的 Token：
 
@@ -211,7 +216,7 @@ similarity = cosine_similarity(query_result, document_result)
 print("Cosine Similarity:", similarity)
 ```
 
-> TODO: 增加 cosine similarity 物理含义的说明.
+> `cosine similarity` 余弦相似度，物理含义：两个向量的相关性、相似度。
 
 #### 2.2.3.Chunk
 
@@ -236,7 +241,50 @@ splits = text_splitter.split_documents(blog_docs)
 print("Print splits 1:" + splits[0])
 ```
 
-> RecursiveCharacterTextSplitter: 原理细节，TODO
+在线尝试各种 文本分割器： [https://langchain-text-splitter.streamlit.app/] ，可以直观感受各种细节。
+
+
+> **RecursiveCharacterTextSplitter** 递归字符文本切分：尽量保证`语义单元`(段落\句子\单词等)，并支持`chunk 之间有重叠`。
+> 
+>  **原理要点**
+> 
+> 1. **递归分割思想**
+> 
+>    * 它会定义一个 **分隔符列表**（比如 `["\n\n", "\n", "。", "，", " "]`）。
+>    * 从“最强分隔符”开始尝试切分（通常是段落级别 `\n\n`），如果小于 `chunk_size`，则，会尝试拼接上`同级别的下一个分块`，否则，直接独占一个 chunk。 
+>    * 如果切出来的片段还是太长（超过 `chunk_size`），就递归地用更细的分隔符继续切（如句子、逗> 号、空格）。
+>    * 如果到了最后一级分隔符还太长，就直接 **硬切字符**。
+> 
+>    > 保证：尽量按“语义单元”切分，而不是随便截断。
+> 
+> 2. **重叠窗口（`chunk_overlap`）**
+> 
+>    * 为了避免模型“上下文割裂”，它支持 **chunk 之间有重叠**。
+>    * 例如 `chunk_size=1000, overlap=200`，则切分结果是：
+> 
+>      ```
+>      [0:1000], [800:1800], [1600:2600], ...
+>      ```
+>    * 这样能保持语义连续性（防止关键句子被切断后丢失上下文）。
+> 
+> 3. **平衡语义完整性与长度限制**
+> 
+>    * RAG、embedding 等应用对输入长度有限制（如 512/1024 tokens）。
+>    * 该算法既要保证 chunk **不超过限制**，又要尽量保持 **语义完整性**（不打断段落/句子）。
+> 
+> 4. **鲁棒性**
+> 
+>    * 如果文本缺少常见分隔符（比如一长段 HTML 或 JSON），递归策略仍能保证最后能切开（最坏情况就> 是硬切字符）。
+> 
+> 
+> **总结一句话**：
+> 
+> **RecursiveCharacterTextSplitter = 按语义单元优先的递归切分 + 重叠窗口机制**，
+> 目标是：
+> 
+> * **尽量保留自然语义边界**（段落/句子）
+> * **又能保证每块符合 LLM 输入限制**
+
 
 
 #### 2.2.4.Index
@@ -258,7 +306,7 @@ retriever = vectorstore.as_retriever()
 上面建好了索引，现在进行检索：
 
 ```
-# TODO: 参数含义
+# 返回 k 个最相关的文档
 retriever = vectorstore.as_retriever(search_kwargs={"k": 1})
 
 docs = retriever.get_relevant_documents("What is Task Decomposition?")
@@ -328,12 +376,13 @@ rag_chain.invoke("What is Task Decomposition?")
 
 查询转换：将原始查询转换为更适合 LLM 理解的查询。
 
-几种常用方法：FIXME
+几种常用方法：
 
-* 查询重写 Multi Query：换一种说法，表达查询意图。
-* 查询扩展：添加更多信息，帮助 LLM 理解查询意图。
-* 假设性文档嵌入 HYDE：让 llm 先生成一份书面的回答（`假设性回答`），并以此作为`查询嵌入`后，获取对应关联文档；再用 `原始查询` + 关联文档，获取最终生成的内容。
-* 多个子查询：依赖 LLM 生成多个子查询，然后分别检索，最后合并结果。
+* **查询重写** `multi-query`：换种说法（可以重写3遍 or 5遍），表达查询意图。
+* **查询融合** `RAG-fusion`：将多个查询的关联文档进行融合（去重、Ranking Fusion），将最相关的文档排在最前面，输入给 LLM，获取最终答案。
+* **子查询** `sub-question`：复杂查询，依赖 LLM 生成多个子查询，然后分别检索，最后合并结果。
+* **后退查询** `step-back query`：将原始查询，转换为更通用的查询，然后检索，获取关联文档，输入给 LLM，获取最终答案。
+* **假设性文档嵌入** `HYDE`：让 llm 先生成一份书面的回答（`假设性回答`），并以此作为`查询嵌入`后，获取对应关联文档；再用 `原始查询` + 关联文档，获取最终生成的内容。
 
 
 构建基础信息：
@@ -410,7 +459,7 @@ generate_queries = (
 
 使用重写得到的 5 个 Query，分别检索，并将关联文档进行`去重`：
 
-TODO：dumps、loads 含义？
+> `dumps`、`loads`：LangChain 的序列化工具，对象转换为 JSON 字符串，并反序列化回来。
 
 ```
 from langchain.load import dumps, loads
@@ -461,7 +510,7 @@ final_rag_chain = (
 final_rag_chain.invoke({"question":question})
 ```
 
-### 3.2.查询融合 RAG Fusion
+### 3.2.查询融合 Rank Fusion
 
 **查询融合 RAG Fusion**：将多个查询的关联文档进行融合(**去重**、`Ranking Fusion`**排序**等)，将最相关的文档排在**最前面**，输入给 LLM，获取最终答案。
 
@@ -498,9 +547,33 @@ generate_queries = (
 )
 ```
 
-下面是 RAG Fusion 的核心，采用 `RRF`（**Reciprocal Rank Fusion**，倒数排序融合）来融合查询到的文档：
+下面是 RAG Fusion 的核心，采用 `RRF`（**Reciprocal Rank Fusion**，倒数排序融合）来融合查询到的文档。
 
-> TODO: 增加 RRF 的物理含义的说明，以及局限性。输入参数 k 的作用，取值有什么考量？
+>
+> **Reciprocal Rank Fusion (RRF)** `倒数排序融合`，做重排序。它常见于信息检索、RAG（Retrieval-Augmented Generation）等场景，用来把多个查询结果，融合成一个最终的排名。
+> 
+> **核心思路**：
+> 
+> * 假设有多个候选文档排名列表（来自不同检索模型或不同索引）。
+> * 对于某个文档，如果它在某个排序器中的位置是 `rank`，那么给它一个分数：
+> 
+> $$
+> score = \frac{1}{k + rank}
+> $$
+> 
+> 其中 $k$ 是平滑常数（通常取 60 左右），弱化单次排序的影响。
+> 
+> * 一个文档可能出现在多个排序结果中，就把它们的 RRF 分数加起来。
+> * 最后按总分数对所有候选文档重新排序，得到融合后的最终候选列表，分数越高排名越靠前。
+> 
+> **优点**：
+> 
+> * 简单、高效，不依赖复杂训练。
+> * 对排名靠前的文档敏感，保证多个检索器共同认为好的内容优先排前。
+> * 在 RAG 里，常用于结合 **稀疏检索（BM25）** 和 **稠密检索（embedding ANN）** 的结果，避免单一检索方式的局限。
+
+
+代码实例：
 
 ```
 from langchain.load import dumps, loads
@@ -942,9 +1015,11 @@ full_chain.invoke({"question": question})
 ## 6.进阶：索引优化（Indexing）
 
 
-几种典型方法：FIXME
+几种典型方法：
 
-* 多表征索引：multi-representation ，将文本做摘要，并将摘要嵌入向量数据库，匹配到之后，获取对应原始文档，构建上下文，进行生成。
+* **多表征索引** `multi-representation` ，将文本做摘要，并将摘要嵌入向量数据库，匹配到之后，获取对应原始文档，构建上下文，进行生成。
+* **树状摘要索引** `RAPTOR`：递归摘要索引，可以获取中间层摘要，进行检索。
+* **ColBERT**：上下文感知的嵌入模型，可以获取更细粒度的相关性。
 
 
 ### 6.1.多表征索引 Multi-Representation Indexing
@@ -1348,7 +1423,77 @@ print(f"Faithfulness Score: {score}")
 
 End-to-End评估框架，都内建了一批评估指标，可以直接使用。
 
-TODO：除了 End-to-End 评估，还有独立的 Embedding model、Re-rank Model 评估。
+> 除了 End-to-End 评估，还有独立的 Embedding model、Re-rank Model 评估。
+> 
+>  **RAG（Retrieval-Augmented Generation）** 的评估，确实可以分成两个层次：
+> 
+> 1. **端到端评估（End-to-End Evaluation）** —— 关注最终生成答案的质量。
+> 2. **组件级评估（Independent Evaluation）** —— 关注检索与排序环节本身是否“好用”。
+> 
+> 
+> 1. **End-to-End 评估指标**
+> 
+> **目标**：衡量最终答案的 **正确性、流畅性、实用性**。
+> 
+> 常见方法：
+> 
+> * **人工评估**
+> 
+>   * *Faithfulness*（忠实性）：是否基于检索内容回答，是否幻觉。
+>   * *Helpfulness*（有用性）：答案是否解决了用户问题。
+>   * *Fluency*（流畅性）：语言自然程度。
+> 
+> * **自动化指标**
+> 
+>   * **Exact Match / F1**（适用于有标准答案的问答任务）。
+>   * **ROUGE / BLEU / METEOR**：与参考答案的文本重叠度。
+>   * **BERTScore / BLEURT**：基于 embedding 的语义相似度。
+>   * **LLM-as-a-judge**：利用 GPT 等大模型打分（最近很常用）。
+> 
+> 2. **Embedding Model 的独立评估**
+> 
+> **目标**：检索时 embedding 的“语义表征能力”。
+> 
+> 常见指标：
+> 
+> * **Retrieval Quality（检索质量）**
+> 
+>   * *Recall\@k*：Top-k 检索结果中是否包含正确答案。
+>   * *Precision\@k*：Top-k 中相关文档占比。
+>   * *MRR（Mean Reciprocal Rank）*：正确文档出现的倒数排名均值。
+>   * *nDCG（Normalized Discounted Cumulative Gain）*：考虑排序位置的加权相关度。
+> 
+> * **Embedding 表征评估**
+> 
+>   * *Clustering Purity / NMI / ARI*：聚类效果。
+>   * *STS（Semantic Textual Similarity）*：与人工打分的句子相似度对比。
+>   * *Domain Adaptation Check*：在目标领域是否维持语义区分度。
+> 
+> 3. **Re-rank Model 的独立评估**
+> 
+> **目标**：在候选文档集合中，模型是否能把“更相关”的排在前面。
+> 
+> 常见指标（多用于信息检索 IR 领域）：
+> 
+> * *MAP（Mean Average Precision）*：多个 query 的平均准确率。
+> * *MRR*：关注第一个相关文档的排名。
+> * *nDCG\@k*：加权排序质量，越相关的文档排得越靠前得分越高。
+> * *Hit Rate\@k*：前 k 个结果里是否有相关文档。
+> * *Pairwise Accuracy*：成对比较文档时，模型是否正确判断哪个更相关。
+> 
+>  4. **组合应用场景下的评估方法**
+> 
+> * **A/B 测试**：在实际系统中对不同 embedding / re-ranker 组合上线实验，观察用户点击率、停留> 时长、反馈。
+> * **Hybrid Evaluation**：先用 IR 指标筛选 embedding/re-ranker，再用 LLM-as-judge 做 > end-to-end 检验。
+> 
+> **总结**：
+> 
+> * **Embedding model** → Recall\@k, MRR, nDCG, STS
+> * **Re-rank model** → MAP, nDCG, Pairwise Accuracy
+> * **End-to-End** → Faithfulness, Helpfulness, Exact Match/F1, LLM-as-judge
+> 
+> 这样，RAG 效果可以从 **检索-排序-生成** 三个环节独立衡量，也能整体衡量。
+
 
 ### 10.3.deepeval 评估
 

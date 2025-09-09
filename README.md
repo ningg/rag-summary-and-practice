@@ -1018,7 +1018,7 @@ full_chain.invoke({"question": question})
 几种典型方法：
 
 * **多表征索引** `multi-representation` ，将文本做摘要，并将摘要嵌入向量数据库，匹配到之后，获取对应原始文档，构建上下文，进行生成。
-* **树状摘要索引** `RAPTOR`：递归摘要索引，可以获取中间层摘要，进行检索。
+* **摘要树索引** `RAPTOR`：递归摘要索引，可以获取中间层摘要，进行检索。
 * **ColBERT**：上下文感知的嵌入模型，可以获取更细粒度的相关性。
 
 
@@ -1155,7 +1155,7 @@ retriever = ParentDocumentRetriever(
 )
 ```
 
-### 6.2.树状摘要索引 RAPTOR
+### 6.2.摘要树索引 RAPTOR
 
 `RAPTOR`，**Recursive Abstractive Processing for Tree-Organized Retrieval**(2024)
 

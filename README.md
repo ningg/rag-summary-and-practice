@@ -1431,7 +1431,7 @@ End-to-End评估框架，都内建了一批评估指标，可以直接使用。
 > 2. **组件级评估（Independent Evaluation）** —— 关注检索与排序环节本身是否“好用”。
 > 
 > 
-> 1. **End-to-End 评估指标**
+> 1.**End-to-End 评估指标**
 > 
 > **目标**：衡量最终答案的 **正确性、流畅性、实用性**。
 > 
@@ -1450,7 +1450,7 @@ End-to-End评估框架，都内建了一批评估指标，可以直接使用。
 >   * **BERTScore / BLEURT**：基于 embedding 的语义相似度。
 >   * **LLM-as-a-judge**：利用 GPT 等大模型打分（最近很常用）。
 > 
-> 2. **Embedding Model 的独立评估**
+> 2.**Embedding Model 的独立评估**
 > 
 > **目标**：检索时 embedding 的“语义表征能力”。
 > 
@@ -1469,7 +1469,7 @@ End-to-End评估框架，都内建了一批评估指标，可以直接使用。
 >   * *STS（Semantic Textual Similarity）*：与人工打分的句子相似度对比。
 >   * *Domain Adaptation Check*：在目标领域是否维持语义区分度。
 > 
-> 3. **Re-rank Model 的独立评估**
+> 3.**Re-rank Model 的独立评估**
 > 
 > **目标**：在候选文档集合中，模型是否能把“更相关”的排在前面。
 > 
